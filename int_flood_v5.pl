@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-#This is made for testing porpuse only and I am not responsible of any illegal use. 
+#This is made for testing porpuse only and I am not responsible for any illegal use. 
 #Copyright © <INT> 2020
 
 my $depencies_loaded = eval {
